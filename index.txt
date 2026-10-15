@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Свет на дороге</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,sans-serif;background:#1a1a2e;color:#eee;
+display:flex;flex-direction:column;align-items:center;padding:16px;min-height:100vh}
+h1{color:#f5c842;margin:8px 0 4px;font-size:1.4em}
+.sub{color:#999;font-size:.8em;margin-bottom:14px}
+.card{background:rgba(255,255,255,.07);border-radius:14px;padding:16px;
+width:100%;max-width:560px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+button{flex:1;min-width:70px;padding:14px 8px;border:none;border-radius:10px;
+font-size:.9em;font-weight:700;cursor:pointer;color:#fff}
+button:active{transform:scale(.96)}
+button:disabled{opacity:.4}
+#bp{background:#f5c842;color:#111}
+#bs{background:#e74c3c}
+#bw{background:#27ae60}
+#bm{background:#8e44ad}
+.pb{display:flex;align-items:center;gap:8px;margin:10px 0}
+.bar{flex:1;height:6px;background:#333;border-radius:3px;overflow:hidden}
+.fl{height:100%;background:#f5c842;width:0%}
+.tm{font-size:.75em;color:#aaa;min-width:75px;text-align:right}
+#lyr{min-height:120px;max-height:180px;overflow-y:auto;text-align:center;
+font-size:1em;line-height:2;padding:8px;white-space:pre-line}
+.ln{padding:3px 8px;border-radius:6px;transition:all .3s}
+.ln.past{color:#555}.ln.cur{color:#f5c842;font-weight:700;background:rgba(245,200,66,.1)}.ln.fut{color:#999}
+.tgl{display:flex;justify-content:center;gap:12px;margin:10px 0;flex-wrap:wrap}
+.tgl label{font-size:.85em;color:#ccc;cursor:pointer}
+#st{text-align:center;color:#888;font-size:.8em;margin-top:8px;min-height:1.2em}
+canvas{width:100%;height:50px;border-radius:8px;background:rgba(0,0,0,.3);display:block;margin:8px 0}
+#rb{display:none;width:100%;height:4px;background:#333;border-radius:2px;margin-top:6px;overflow:hidden}
+#rf{height:100%;background:#27ae60;width:0%;transition:width .2s}
+</style>
+</head>
+<body>
+<h1>🎵 Свет на дороге</h1>
+<p class="sub">Em · ♩=92 · голос + гитара + барабаны + пианино</p>
+<div class="card">
+<div class="row">
+<button id="bp">▶ Играть</button>
+<button id="bs" disabled>■</button>
+<button id="bw">⬇ WAV</button>
+<button id="bm">⬇ MIDI</button>
+</div>
+<div class="pb"><div class="bar"><div class="fl" id="pf"></div></div><span class="tm" id="td">0:00 / 1:20</span></div>
+<canvas id="vis"></canvas>
+<div id="rb"><div id="rf"></div></div>
+<div id="lyr"></div>
+<div class="tgl">
+<label><input type="checkbox" id="cv" checked> 🎤 Голос</label>
+<label><input type="checkbox" id="cg" checked> 🎸 Гитара</label>
+<label><input type="checkbox" id="cd" checked> 🥁 Барабаны</label>
+<label><input type="checkbox" id="cp" checked> 🎹 Пианино</label>
+</div>
+<div id="st">Нажмите ▶ Играть</div>
+</div>
+
+<script>
+// ═══════════ КОНСТАНТЫ ═══════════
+const BPM = 92;
+const BEAT = 60 / BPM;
+const PPQ = 480;
+const SR = 44100;
+const TOTAL_BEATS = 122;
+const TOTAL_T = TOTAL_BEATS * BEAT;
+
+const $ = id => document.getElementById(id);
+const m2f = m => 440 * Math.pow(2, (m - 69) / 12);
+const fmt = s => ~~(s/60) + ':' + (~~(s%60)<10?'0':'') + ~~(s%60);
+
+// ═══════════ ДАННЫЕ ═══════════
+const MEL = [
+[4,1,76],[5,.5,74],[5.5,.5,74],[6,1,71],[7.5,.5,71],[8,1,72],[9,.5,71],[9.5,.5,69],[10,2,67],[12.5,.5,69],[13,.5,71],[13.5,1,74],
+[16,1,76],[17,.5,76],[17.5,.5,74],[18,1,71],[19,.5,71],[19.5,.5,69],[20,1,72],[21,1,71],[22,.5,69],[22.5,.5,69],[23,1,67],[24,1.5,71],[25.5,.5,69],
+[28,1,79],[29,.5,78],[29.5,.5,76],[30,1,74],[31,.5,74],[31.5,.5,76],[32,1.5,78],[33.5,.5,76],[34,1,74],[35,1,71],[36,1,76],[37,.5,74],[37.5,.5,72],[38,1,71],[39,1,69],
+[40,1,79],[41,.5,78],[41.5,.5,76],[42,.5,74],[42.5,.5,72],[43,1,74],[44,1,76],[45,1,74],[46,.5,71],[46.5,.5,71],[47,1,69],[48,1.5,79],[49.5,.5,78],[50,2,76],
+[52,.5,76],[52.5,.5,76],[53,1,74],[54,1,72],[55,.5,71],[55.5,.5,69],[56,1,71],[57,1,72],[58,1,74],[59,1,76],[60,1,74],[61,1,71],[62,2,67],
+[64,1,72],[65,1,74],[66,1,76],[67,.5,76],[67.5,.5,74],[68,1,72],[69,.5,74],[69.5,.5,72],[70,1,69],[71,1,67],[72,4,76],
+[78,1,79],[79,1,78],[80,1,76],[81,1,74],[82,1,71],[83,1,74],[84,1,72],[85,1,69],[86,1,67],
+[88,1.5,76],[90,1,76],[91,1,74],[92,1,71],[93,1,69],[94,1,71],[95,1,74],[96,1,71],[97,1,69],
+[99,1.5,67],[101,.5,67],[102,1,64],[103,1,67],[104,1,64],[105,1,62],
+[110,1,79],[111,.5,78],[111.5,.5,76],[114,4,76]];
+
+const CH = [
+[0,4,[52,64,67,71]],[4,4,[48,60,64,67]],[8,4,[55,67,71,74]],[12,4,[50,62,66,69]],
+[16,4,[52,64,67,71]],[20,4,[48,60,64,67]],[24,4,[55,67,71,74]],[28,4,[50,62,66,69]],
+[32,4,[52,64,67,71]],[36,4,[48,60,64,67]],[40,4,[55,67,71,74]],[44,4,[50,62,66,69]],
+[48,4,[48,60,64,67]],[52,4,[50,62,66,69]],[56,4,[52,64,67,71]],[60,4,[50,62,66,69]],
+[64,4,[48,60,64,67]],[68,4,[50,62,66,69]],[72,4,[52,64,67,71]],[76,4,[50,62,66,69]],
+[80,4,[48,60,64,67]],[84,4,[52,64,67,71]],[88,4,[50,62,66,69]],
+[108,4,[48,60,64,67]],[112,4,[50,62,66,69]],[116,6,[52,64,67,71]]];
+
+const LINES = [
+{s:0,e:3.9,t:"♪ Вступление"},
+{s:4,e:15,t:"Город гасит фонари один за другим"},
+{s:16,e:27,t:"Я иду туда, где воздух ещё жив"},
+{s:28,e:39,t:"А на дороге свет, которого не ждал"},
+{s:40,e:51,t:"Он не горит для всех, он только мне мигал"},
+{s:52,e:63,t:"Я не прошу ответа, я просто в нём стою"},
+{s:64,e:75,t:"И тишина поёт мне песню свою"},
+{s:78,e:106,t:"И если завтра свет погаснет —\nя запомню, как стоял в нём.\nЭтого довольно."},
+{s:110,e:122,t:"…свою ♪"}];
+
+// Генерация гитарных событий
+const GTR = [];
+CH.forEach(([b,d,ns]) => {
+  const isCh = b>=32 && b<76, isBr = b>=78 && b<108;
+  if(isBr){ ns.forEach((n,j)=>GTR.push({b:b+j*.75,m:n-12,d:.7,v:.3})); }
+  else if(isCh){ GTR.push({b,m:ns,d:d*.45,v:.5,st:1}); GTR.push({b:b+2,m:ns,d:d*.4,v:.45,st:1}); }
+  else { const p=[0,2,1,3,2,1]; p.forEach((ni,j)=>GTR.push({b:b+j*(d/6),m:ns[Math.min(ni,ns.length-1)]-12,d:d/6*.9,v:.35})); }
+});
+
+// Генерация барабанов
+const DRM = [];
+for(let m=0;m<TOTAL_BEATS/4;m++){
+  const b0=m*4, isBr=m>=19&&m<27;
+  if(isBr){ for(let i=0;i<4;i++) DRM.push({b:b0+i,t:'hh',v:.12}); continue; }
+  DRM.push({b:b0,t:'k',v:.9},{b:b0+2,t:'k',v:.85});
+  DRM.push({b:b0+1,t:'s',v:.7},{b:b0+3,t:'s',v:.7});
+  for(let i=0;i<8;i++) DRM.push({b:b0+i*.5,t:'h',v:i%2?.2:.35});
+}
+
+// ═══════════ АУДИО ═══════════
+let ac = null;
+let masterGain, analyser;
+let playing = false, startT = 0, schedTimer = null;
+let activeNodes = [];
+
+function ensureAudio() {
+  if (!ac) {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = ac.createGain();
+    masterGain.gain.value = 1.0;
+    analyser = ac.createAnalyser();
+    analyser.fftSize = 256;
+    masterGain.connect(analyser);
+    analyser.connect(ac.destination);
+  }
+  if (ac.state === 'suspended') ac.resume();
+}
+
+// ═══════════ СИНТЕЗ ═══════════
+function synthVoice(ctx, dest, freq, t, dur) {
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.value = freq;
+  // Вибрато
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = 5.5;
+  const lg = ctx.createGain();
+  lg.gain.value = freq * 0.01;
+  lfo.connect(lg); lg.connect(o.frequency);
+  // Форманты
+  const bp1 = ctx.createBiquadFilter(); bp1.type='bandpass'; bp1.frequency.value=800; bp1.Q.value=4;
+  const bp2 = ctx.createBiquadFilter(); bp2.type='bandpass'; bp2.frequency.value=1200; bp2.Q.value=5;
+  const bp3 = ctx.createBiquadFilter(); bp3.type='bandpass'; bp3.frequency.value=2800; bp3.Q.value=6;
+  const mix = ctx.createGain(); mix.gain.value = 3.5; // УСИЛЕНИЕ!
+  o.connect(bp1); bp1.connect(mix);
+  o.connect(bp2); bp2.connect(mix);
+  o.connect(bp3); bp3.connect(mix);
+  // Огибающая
+  const env = ctx.createGain();
+  env.gain.setValueAtTime(0, t);
+  env.gain.linearRampToValueAtTime(0.5, t + 0.05);
+  env.gain.setValueAtTime(0.5, t + dur * 0.75);
+  env.gain.linearRampToValueAtTime(0, t + dur);
+  mix.connect(env); env.connect(dest);
+  o.start(t); o.stop(t + dur + 0.05);
+  lfo.start(t); lfo.stop(t + dur + 0.05);
+  return [o, lfo];
+}
+
+function synthGuitar(ctx, dest, freq, t, dur, vel) {
+  const o = ctx.createOscillator();
+  o.type = 'triangle';
+  o.frequency.value = freq;
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = 1;
+  const env = ctx.createGain();
+  env.gain.setValueAtTime(0, t);
+  env.gain.linearRampToValueAtTime(vel, t + 0.005);
+  env.gain.exponentialRampToValueAtTime(Math.max(vel*0.2, 0.001), t + dur * 0.5);
+  env.gain.linearRampToValueAtTime(0.001, t + dur);
+  o.connect(lp); lp.connect(env); env.connect(dest);
+  o.start(t); o.stop(t + dur + 0.02);
+  return [o];
+}
+
+function synthDrum(ctx, dest, type, t, vel) {
+  if (type === 'k') {
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(160, t);
+    o.frequency.exponentialRampToValueAtTime(40, t + 0.1);
+    const e = ctx.createGain();
+    e.gain.setValueAtTime(vel, t);
+    e.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    o.connect(e); e.connect(dest);
+    o.start(t); o.stop(t + 0.3);
+    return [o];
+  } else if (type === 's') {
+    const len = Math.floor(ctx.sampleRate * 0.1);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i=0; i<len; i++) d[i] = (Math.random()*2-1) * Math.pow(1-i/len, 2);
+    const s = ctx.createBufferSource(); s.buffer = buf;
+    const bp = ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=2000; bp.Q.value=0.7;
+    const e = ctx.createGain();
+    e.gain.setValueAtTime(vel, t);
+    e.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    s.connect(bp); bp.connect(e); e.connect(dest);
+    s.start(t);
+    return [s];
+  } else { // hi-hat
+    const len = Math.floor(ctx.sampleRate * 0.04);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i=0; i<len; i++) d[i] = (Math.random()*2-1) * Math.pow(1-i/len, 3);
+    const s = ctx.createBufferSource(); s.buffer = buf;
+    const hp = ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=8000;
+    const e = ctx.createGain();
+    e.gain.setValueAtTime(vel * 0.5, t);
+    e.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    s.connect(hp); hp.connect(e); e.connect(dest);
+    s.start(t);
+    return [s];
+  }
+}
+
+function synthPiano(ctx, dest, notes, t, dur) {
+  const nodes = [];
+  notes.forEach((m, i) => {
+    const f = m2f(m);
+    const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
+    const pk = 0.15 / (i + 1);
+    const e = ctx.createGain();
+    e.gain.setValueAtTime(0, t);
+    e.gain.linearRampToValueAtTime(pk, t + 0.015);
+    e.gain.exponentialRampToValueAtTime(Math.max(pk*0.2, 0.001), t + dur * 0.6);
+    e.gain.linearRampToValueAtTime(0.001, t + dur);
+    o.connect(e); e.connect(dest);
+    o.start(t); o.stop(t + dur + 0.05);
+    nodes.push(o);
+  });
+  return nodes;
+}
+
+// ═══════════ ПЛАНИРОВЩИК ═══════════
+const LOOKAHEAD = 0.4; // сек вперёд
+const INTERVAL = 100; // мс между проверками
+
+let melIdx = 0, gtrIdx = 0, drmIdx = 0, chIdx = 0;
+
+function schedule() {
+  if (!playing) return;
+  const now = ac.currentTime;
+  const horizon = now + LOOKAHEAD;
+
+  // Голос
+  if ($('cv').checked) {
+    while (melIdx < MEL.length && startT + MEL[melIdx][0]*BEAT < horizon) {
+      const [b,d,m] = MEL[melIdx];
+      const t = startT + b * BEAT;
+      if (t >= now - 0.05) {
+        activeNodes.push(...synthVoice(ac, masterGain, m2f(m), t, d*BEAT));
+      }
+      melIdx++;
+    }
+  } else { while(melIdx < MEL.length && startT + MEL[melIdx][0]*BEAT < horizon) melIdx++; }
+
+  // Гитара
+  if ($('cg').checked) {
+    while (gtrIdx < GTR.length && startT + GTR[gtrIdx].b*BEAT < horizon) {
+      const ev = GTR[gtrIdx];
+      const t = startT + ev.b * BEAT;
+      if (t >= now - 0.05) {
+        if (ev.st) {
+          ev.m.forEach((n,i) => {
+            activeNodes.push(...synthGuitar(ac, masterGain, m2f(n), t + i*0.03, ev.d*BEAT, ev.v/ev.m.length*2));
+          });
+        } else {
+          activeNodes.push(...synthGuitar(ac, masterGain, m2f(ev.m), t, ev.d*BEAT, ev.v));
+        }
+      }
+      gtrIdx++;
+    }
+  } else { while(gtrIdx < GTR.length && startT + GTR[gtrIdx].b*BEAT < horizon) gtrIdx++; }
+
+  // Барабаны
+  if ($('cd').checked) {
+    while (drmIdx < DRM.length && startT + DRM[drmIdx].b*BEAT < horizon) {
+      const ev = DRM[drmIdx];
+      const t = startT + ev.b * BEAT;
+      if (t >= now - 0.05) {
+        activeNodes.push(...synthDrum(ac, masterGain, ev.t, t, ev.v));
+      }
+      drmIdx++;
+    }
+  } else { while(drmIdx < DRM.length && startT + DRM[drmIdx].b*BEAT < horizon) drmIdx++; }
+
+  // Пианино
+  if ($('cp').checked) {
+    while (chIdx < CH.length && startT + CH[chIdx][0]*BEAT < horizon) {
+      const [b,d,ns] = CH[chIdx];
+      const t = startT + b * BEAT;
+      if (t >= now - 0.05) {
+        activeNodes.push(...synthPiano(ac, masterGain, ns, t, d*BEAT));
+      }
+      chIdx++;
+    }
+  } else { while(chIdx < CH.length && startT + CH[chIdx][0]*BEAT < horizon) chIdx++; }
+
+  // Проверка конца
+  const elapsed = now - startT;
+  if (elapsed >= TOTAL_T + 1) { stopSong(); return; }
+
+  requestAnimationFrame(schedule);
+}
+
+// ═══════════ UI ═══════════
+function startSong() {
+  ensureAudio();
+  // Ждём, пока контекст точно запущен
+  ac.resume().then(() => {
+    playing = true;
+    melIdx = 0; gtrIdx = 0; drmIdx = 0; chIdx = 0;
+    activeNodes = [];
+    startT = ac.currentTime + 0.15;
+    $('bp').textContent = '⏸ Пауза';
+    $('bs').disabled = false;
+    $('st').textContent = '♫ Играет…';
+    schedule();
+    updateUI();
+    drawVis();
+  });
+}
+
+function stopSong() {
+  playing = false;
+  activeNodes.forEach(n => { try{n.stop();}catch(e){} });
+  activeNodes = [];
+  $('bp').textContent = '▶ Играть';
+  $('bs').disabled = true;
+  $('st').textContent = 'Остановлено';
+  $('pf').style.width = '0%';
+  $('td').textContent = '0:00 / ' + fmt(TOTAL_T);
+}
+
+function updateUI() {
+  if (!playing) return;
+  const el = ac.currentTime - startT;
+  if (el < 0) { requestAnimationFrame(updateUI); return; }
+  $('pf').style.width = Math.min(el/TOTAL_T*100, 100) + '%';
+  $('td').textContent = fmt(el) + ' / ' + fmt(TOTAL_T);
+  const cb = el / BEAT;
+  let h = '';
+  LINES.forEach(l => {
+    let c = 'fut';
+    if (cb > l.e) c = 'past';
+    else if (cb >= l.s) c = 'cur';
+    h += `<div class="ln ${c}">${l.t}</div>`;
+  });
+  const box = $('lyr'); box.innerHTML = h;
+  const cur = box.querySelector('.cur');
+  if (cur) cur.scrollIntoView({block:'center', behavior:'smooth'});
+  requestAnimationFrame(updateUI);
+}
+
+function drawVis() {
+  if (!playing || !analyser) return;
+  const cv = $('vis'), cx = cv.getContext('2d');
+  const W = cv.width = cv.offsetWidth, H = cv.height = cv.offsetHeight;
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(data);
+  cx.clearRect(0,0,W,H);
+  const bw = W / data.length * 2.5;
+  let x = 0;
+  for (let i=0; i<data.length; i++) {
+    const h = data[i]/255*H;
+    cx.fillStyle = `hsla(${35+i/data.length*40},80%,60%,.8)`;
+    cx.fillRect(x, H-h, bw-1, h);
+    x += bw; if (x > W) break;
+  }
+  requestAnimationFrame(drawVis);
+}
+
+// ═══════════ ЭКСПОРТ WAV ═══════════
+async function exportWav() {
+  setB(true); showR(10, 'Рендер…');
+  const len = Math.ceil((TOTAL_T + 1.5) * SR);
+  const oc = new OfflineAudioContext(2, len, SR);
+  const mg = oc.createGain(); mg.gain.value = 1.0; mg.connect(oc.destination);
+
+  if ($('cv').checked) MEL.forEach(([b,d,m]) => synthVoice(oc, mg, m2f(m), b*BEAT, d*BEAT));
+  if ($('cg').checked) GTR.forEach(ev => {
+    const t = ev.b*BEAT;
+    if (ev.st) ev.m.forEach((n,i) => synthGuitar(oc, mg, m2f(n), t+i*.03, ev.d*BEAT, ev.v/ev.m.length*2));
+    else synthGuitar(oc, mg, m2f(ev.m), t, ev.d*BEAT, ev.v);
+  });
+  if ($('cd').checked) DRM.forEach(ev => synthDrum(oc, mg, ev.t, ev.b*BEAT, ev.v));
+  if ($('cp').checked) CH.forEach(([b,d,n]) => synthPiano(oc, mg, n, b*BEAT, d*BEAT));
+
+  showR(35, 'Рендеринг…');
+  let buf;
+  try { buf = await oc.startRendering(); }
+  catch(e) { showR(0,'Ошибка рендера'); setB(false); return; }
+
+  showR(65, 'Кодирование…');
+  await new Promise(r => setTimeout(r, 50));
+  const blob = encodeWav(buf);
+  showR(100, '✓ Скачано');
+  download(blob, 'свет_на_дороге.wav');
+  setTimeout(() => { showR(0,''); setB(false); }, 2000);
+}
+
+function encodeWav(buf) {
+  const nc = buf.numberOfChannels, sr = buf.sampleRate, len = buf.length;
+  const il = new Float32Array(len * nc);
+  for (let c=0; c<nc; c++) {
+    const ch = buf.getChannelData(c);
+    for (let i=0; i<len; i++) il[i*nc+c] = ch[i];
+  }
+  let pk = 0;
+  for (let i=0; i<il.length; i++) pk = Math.max(pk, Math.abs(il[i]));
+  if (pk > 0) { const g = 0.95/pk; for (let i=0; i<il.length; i++) il[i] *= g; }
+  const dataLen = il.length * 2;
+  const ab = new ArrayBuffer(44 + dataLen);
+  const v = new DataView(ab);
+  const ws = (o,s) => { for(let i=0;i<s.length;i++) v.setUint8(o+i,s.charCodeAt(i)); };
+  ws(0,'RIFF'); v.setUint32(4,36+dataLen,true); ws(8,'WAVE'); ws(12,'fmt ');
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,nc,true);
+  v.setUint32(24,sr,true); v.setUint32(28,sr*nc*2,true); v.setUint16(32,nc*2,true);
+  v.setUint16(34,16,true); ws(36,'data'); v.setUint32(40,dataLen,true);
+  let off = 44;
+  for (let i=0; i<il.length; i++, off+=2) {
+    const s = Math.max(-1, Math.min(1, il[i]));
+    v.setInt16(off, s<0 ? s*0x8000 : s*0x7FFF, true);
+  }
+  return new Blob([ab], {type:'audio/wav'});
+}
+
+// ═══════════ ЭКСПОРТ MIDI ═══════════
+function exportMidi() {
+  setB(true); showR(50, 'MIDI…');
+  setTimeout(() => {
+    const blob = encodeMidi();
+    showR(100, '✓');
+    download(blob, 'свет_на_дороге.mid');
+    setTimeout(() => { showR(0,''); setB(false); }, 1200);
+  }, 50);
+}
+
+function encodeMidi() {
+  const vlq = v => { const b=[v&0x7F]; v>>=7; while(v>0){b.unshift((v&0x7F)|0x80);v>>=7;} return b; };
+  const tk = b => Math.round(b * PPQ);
+  const tempo = Math.round(60000000 / BPM);
+  const tr0 = [0,0xFF,0x58,4,4,2,24,8, 0,0xFF,0x51,3,(tempo>>16)&0xFF,(tempo>>8)&0xFF,tempo&0xFF, 0,0xFF,0x2F,0];
+
+  // Voice
+  let ev=[]; MEL.forEach(([b,d,m])=>{ev.push({t:tk(b),on:1,n:m,v:100});ev.push({t:tk(b+d),on:0,n:m,v:0});});
+  ev.sort((a,b)=>a.t-b.t);
+  let tr1=[0,0xFF,0x03,5,0x56,0x6F,0x69,0x63,0x65, 0,0xC0,52];
+  let lt=0; ev.forEach(e=>{tr1.push(...vlq(e.t-lt));tr1.push(e.on?0x90:0x80,e.n,e.v);lt=e.t;});
+  tr1.push(0,0xFF,0x2F,0);
+
+  // Guitar
+  ev=[]; GTR.forEach(g=>{
+    if(g.st){g.m.forEach(n=>{ev.push({t:tk(g.b),on:1,n,v:Math.round(g.v*127)});ev.push({t:tk(g.b+g.d),on:0,n,v:0});});}
+    else{ev.push({t:tk(g.b),on:1,n:g.m,v:Math.round(g.v*127)});ev.push({t:tk(g.b+g.d),on:0,n:g.m,v:0});}
+  });
+  ev.sort((a,b)=>a.t-b.t);
+  let tr2=[0,0xFF,0x03,6,0x47,0x75,0x69,0x74,0x61,0x72, 0,0xC1,24];
+  lt=0; ev.forEach(e=>{tr2.push(...vlq(e.t-lt));tr2.push(e.on?0x91:0x81,e.n,e.v);lt=e.t;});
+  tr2.push(0,0xFF,0x2F,0);
+
+  // Drums
+  ev=[]; DRM.forEach(d=>{
+    const n=d.t==='k'?36:d.t==='s'?38:42;
+    ev.push({t:tk(d.b),on:1,n,v:Math.round(d.v*127)});
+    ev.push({t:tk(d.b)+(d.t==='h'?tk(.1):tk(.3)),on:0,n,v:0});
+  });
+  ev.sort((a,b)=>a.t-b.t);
+  let tr3=[0,0xFF,0x03,5,0x44,0x72,0x75,0x6D,0x73];
+  lt=0; ev.forEach(e=>{tr3.push(...vlq(e.t-lt));tr3.push(e.on?0x99:0x89,e.n,e.v);lt=e.t;});
+  tr3.push(0,0xFF,0x2F,0);
+
+  // Piano
+  ev=[]; CH.forEach(([b,d,ns])=>ns.forEach(n=>{ev.push({t:tk(b),on:1,n,v:70});ev.push({t:tk(b+d),on:0,n,v:0});}));
+  ev.sort((a,b)=>a.t-b.t);
+  let tr4=[0,0xFF,0x03,5,0x50,0x69,0x61,0x6E,0x6F, 0,0xC2,0];
+  lt=0; ev.forEach(e=>{tr4.push(...vlq(e.t-lt));tr4.push(e.on?0x92:0x82,e.n,e.v);lt=e.t;});
+  tr4.push(0,0xFF,0x2F,0);
+
+  const hd=[0x4D,0x54,0x68,0x64,0,0,0,6,0,1,0,5,(PPQ>>8)&0xFF,PPQ&0xFF];
+  const wr=t=>{const l=t.length;return[0x4D,0x54,0x72,0x6B,(l>>24)&0xFF,(l>>16)&0xFF,(l>>8)&0xFF,l&0xFF,...t];};
+  return new Blob([new Uint8Array([...hd,...wr(tr0),...wr(tr1),...wr(tr2),...wr(tr3),...wr(tr4)])],{type:'audio/midi'});
+}
+
+// ═══════════ УТИЛИТЫ ═══════════
+function download(blob, name) {
+  const u = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = u; a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(u); }, 300);
+}
+function setB(d) { ['bp','bw','bm'].forEach(id => $(id).disabled = d); }
+function showR(p, t) { $('rb').style.display = p?'block':'none'; $('rf').style.width = p+'%'; if(t) $('st').textContent = t; }
+
+// ═══════════ СОБЫТИЯ ═══════════
+$('bp').onclick = () => { playing ? stopSong() : startSong(); };
+$('bs').onclick = stopSong;
+$('bw').onclick = exportWav;
+$('bm').onclick = exportMidi;
+$('td').textContent = '0:00 / ' + fmt(TOTAL_T);
+$('lyr').innerHTML = LINES.map(l => `<div class="ln fut">${l.t}</div>`).join('');
+</script>
+</body>
+</html>
